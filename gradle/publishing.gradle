@@ -1,0 +1,53 @@
+apply plugin: 'maven-publish'
+
+if (System.getenv('CI') && System.getenv('CI').toBoolean()) {
+    apply plugin: 'signing'
+    signing {
+        useInMemoryPgpKeys(findProperty('signingKey'), findProperty('signingPassword'))
+        sign publishing.publications
+    }
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            groupId project.group
+            artifactId project.archivesBaseName
+            version project.version
+            artifact jar
+            artifact sourcesJar
+        }
+    }
+    repositories {
+        maven {
+            name = 'McmodsRepo'
+            url "file://${project.projectDir}/mcmodsrepo"
+        }
+    }
+}
+
+if (project.hasProperty('mod_repository')) {
+    publishing.repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri("https://maven.pkg.github.com/${mod_repository}")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ? System.getenv("GITHUB_ACTOR") : System.getenv("GITHUB_USERNAME")
+                password = System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
+}
+
+if (project.mod_group_id == 'org.auioc.mcmod') {
+    publishing.repositories {
+        maven {
+            name = 'AuiocMavenRepo'
+            url = uri("https://repo.auioc.com/maven/releases")
+            credentials {
+                username = System.getenv('AUIOC_MAVEN_USERNAME')
+                password = System.getenv('AUIOC_MAVEN_TOKEN')
+            }
+        }
+    }
+}
