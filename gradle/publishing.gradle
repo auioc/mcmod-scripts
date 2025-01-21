@@ -26,7 +26,7 @@ publishing {
     }
 }
 
-if (project.hasProperty('mod_repository')) {
+if (!ext.prerelease && project.hasProperty('mod_repository')) {
     publishing.repositories {
         maven {
             name = 'GitHubPackages'
@@ -39,7 +39,7 @@ if (project.hasProperty('mod_repository')) {
     }
 }
 
-if (project.mod_group_id == 'org.auioc.mcmod') {
+if (!ext.prerelease && project.mod_group_id == 'org.auioc.mcmod') {
     publishing.repositories {
         maven {
             name = 'AuiocMavenRepo'

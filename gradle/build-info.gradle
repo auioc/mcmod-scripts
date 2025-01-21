@@ -1,7 +1,30 @@
+import java.util.regex.Pattern
+
 println 'Java: ' + System.getProperty('java.version') + ', JVM: ' + System.getProperty('java.vm.version') + '(' + System.getProperty('java.vendor') + '), Arch: ' + System.getProperty('os.arch')
 
 static def getEnvAsBoolean(String name) {
     return System.getenv(name) && System.getenv(name).toBoolean()
+}
+
+class SemVer {
+    static Pattern SEMVER_PATTERN = Pattern.compile('^(?<core>(?<major>0|[1-9]\\d*)\\.(?<minor>0|[1-9]\\d*)\\.(?<patch>0|[1-9]\\d*))(?:-(?<prerelease>(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+(?<buildmetadata>[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$')
+}
+
+static def matchSemver(String version, String group, boolean required = false) {
+    var matcher = SemVer.SEMVER_PATTERN.matcher(version);
+    matcher.find()
+    String r
+    try {
+        r = matcher.group(group)
+    } catch (IllegalStateException ignored) {
+        throw new IllegalStateException("'${version}' is not a valid SemVer")
+    } catch (IllegalArgumentException ignored) {
+        throw new IllegalStateException("'${group}' is not a valid SemVer group")
+    }
+    if (required && (r == null || r.isEmpty())) {
+        throw new IllegalStateException("Required SemVer group '${group}' not found in '${version}'")
+    }
+    return r
 }
 
 def exec(String... commands) {
@@ -18,25 +41,34 @@ def isCi = getEnvAsBoolean('CI')
 def isGithubActions = isCi && getEnvAsBoolean('GITHUB_ACTIONS')
 def hasGit = project.file('.git').isDirectory()
 
+def versionCore = matchSemver(mod_version, 'core', true)
 def reversion = isGithubActions
-        ? System.getenv('GITHUB_SHA')
-        : (hasGit ? exec('git', 'rev-parse', '--verify', 'HEAD') : 'unknown')
+    ? System.getenv('GITHUB_SHA')
+    : (hasGit ? exec('git', 'rev-parse', '--verify', 'HEAD') : 'unknown')
 def reversionShort = reversion.length() > 8 ? reversion.substring(0, 7) : reversion
 def buildNumber = isGithubActions ? System.getenv('GITHUB_RUN_NUMBER').toInteger() : 0
 def isDirty = (!isCi && hasGit) ? !exec('git', 'status', '--short').isEmpty() : false
 def isRelease = isGithubActions ? getEnvAsBoolean('IS_RELEASE') : false
+def prerelease = matchSemver(mod_version, 'prerelease')
+def _prerelease = prerelease ? "-${prerelease}" : ''
+ext.prerelease = prerelease ? true : false
+if (isGithubActions) {
+    file(System.getenv('GITHUB_ENV')).append("\nIS_PRERELEASE=${ext.prerelease}\n")
+}
 def buildInfo = "rev.${reversionShort}-build.${buildNumber}${isRelease ? '' : '-dev'}${isDirty ? '-dirty' : ''}"
 
-def projectFullName = "${mod_id}-${minecraft_version}-${mod_version}-${buildInfo}"
-println "Project: " + projectFullName
+def semver = "${versionCore}${_prerelease}+${buildInfo}"
+def projectFullName = "${mod_id}-${minecraft_version}-${semver}"
+println "Project: ${mod_id}, Mineraft: ${minecraft_version}"
 
 project.group = mod_group_id
 project.base {
     archivesName = mod_id
 }
-project.version = getEnvAsBoolean('IS_RELEASE')
-        ? "${minecraft_version}-${mod_version}"
-        : "${minecraft_version}-${mod_version}-${buildInfo}"
+project.version = isRelease
+    ? "${minecraft_version}-${versionCore}${_prerelease}"
+    : "${minecraft_version}-${versionCore}${_prerelease}+${buildInfo}"
+println 'Project version: ' + project.version
 
 def packageName = "${mod_group_id}.${mod_id}"
 def buildInfoClass = """package ${packageName};
@@ -44,11 +76,17 @@ def buildInfoClass = """package ${packageName};
 // To make changes, please edit the template in the build script.
 // (typically the template can be found in "build-info.gradle")
 public final class BuildInfo {
+    public static final String SEMVER_VERSION = "${semver}";
+    public static final int SEMVER_MAJOR = ${matchSemver(mod_version, 'major', true)};
+    public static final int SEMVER_MINOR = ${matchSemver(mod_version, 'minor', true)};
+    public static final int SEMVER_PATCH = ${matchSemver(mod_version, 'patch', true)};
+    public static final String SEMVER_PRERELEASE = ${prerelease ? "\"${prerelease}\"" : null};
+    public static final String SEMVER_BUILD = "${buildInfo}";
     public static final String VERSION = "${mod_version}";
+    public static final boolean IS_RELEASE = ${isRelease};
     public static final String REVERSION = "${reversion}";
     public static final int BUILD_NUMBER = ${buildNumber};
     public static final boolean IS_CI_BUILD = ${isCi};
-    public static final boolean IS_RELEASE = ${isRelease};
     public static final boolean IS_DIRTY = ${isDirty};
     public static final String MINECRAFT_VERSION = "${minecraft_version}";
     public static final String NEOFORGE_VERSION = "${neo_version}";
